@@ -75,6 +75,7 @@ func main() {
 	var opts struct {
 		Site string `short:"s" long:"site" description:"The Flarum site you want to get RSS from" required:"true"`
 		Output string `short:"o" long:"output" description:"Path of the output file" required:"true"`
+		Type string `short:"t" long:"type" description:"Feed format" choice:"rss" choice:"feedData"`
 	}
 
 	_, err := flags.ParseArgs(&opts, os.Args[1:])
@@ -140,14 +141,25 @@ func main() {
 	}, "data")
 	fatalError(err)
 
-	atom, err := feed.ToAtom()
-	fatalError(err)
+	var feedData string
+
+	switch opts.Type {
+	case "rss":
+		feedData, err = feed.ToAtom()
+		fatalError(err)
+		break
+	case "atom":
+	default:
+		feedData, err = feed.ToRss()
+		fatalError(err)
+		break
+	}
 
 	if opts.Output == "-" {
-		_, err = os.Stdout.Write([]byte(atom))
+		_, err = os.Stdout.Write([]byte(feedData))
 		fatalError(err)
 		return
 	}
-	err = ioutil.WriteFile(opts.Output, []byte(atom), 0644)
+	err = ioutil.WriteFile(opts.Output, []byte(feedData), 0644)
 	fatalError(err)
 }
