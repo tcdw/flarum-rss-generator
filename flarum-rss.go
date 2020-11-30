@@ -4,11 +4,13 @@ import (
 	"fmt"
 	"github.com/PuerkitoBio/goquery"
 	"github.com/buger/jsonparser"
+	"github.com/gorilla/feeds"
 	"github.com/jessevdk/go-flags"
 	"io/ioutil"
 	"log"
 	"net/http"
 	"os"
+	"time"
 )
 
 func fatalError(err error) {
@@ -81,14 +83,24 @@ func main() {
 	}
 
 	log.Println("Retrieving site meta data")
-	title, description, err := getMeta(opts.Site)
+	site := opts.Site
+	title, description, err := getMeta(site)
 	fatalError(err)
 	log.Printf("Title: %s\n", title)
 	log.Printf("Description: %s\n", description)
 
 	log.Println("Retrieving thread list")
-	data, err := getThreads(opts.Site)
+	data, err := getThreads(site)
 	fatalError(err)
+
+	now := time.Now()
+	feed := &feeds.Feed{
+		Title:       title,
+		Link:        &feeds.Link{Href: site},
+		Description: description,
+		Created:     now,
+	}
+	feed.Items = []*feeds.Item{}
 
 	_, err = jsonparser.ArrayEach(data, func(value []byte, dataType jsonparser.ValueType, offset int, err error) {
 		// 获取基本信息
@@ -96,6 +108,7 @@ func main() {
 		title, _ := jsonparser.GetString(value, "attributes", "title")
 		createdAt, _ := jsonparser.GetString(value, "attributes", "createdAt")
 		userID, _ := jsonparser.GetString(value, "relationships", "user", "data", "id")
+		firstPost, _ := jsonparser.GetString(value, "relationships", "firstPost", "data", "id")
 		// 获取主题作者信息
 		var authorName string
 		var content string
@@ -109,14 +122,32 @@ func main() {
 				}
 				break
 			case "posts":
-				cPostID, _ := jsonparser.GetString(value, "id")
-				if cPostID == postID {
+				cFirstPost, _ := jsonparser.GetString(value, "id")
+				if cFirstPost == firstPost {
 					content, _ = jsonparser.GetString(value, "attributes", "contentHtml")
 				}
 				break
 			}
 		}, "included")
-		fmt.Println(postID, title, createdAt, userID, authorName, content)
+		created, _ := time.Parse(time.RFC3339, createdAt);
+		feed.Items = append(feed.Items, &feeds.Item{
+			Title:       title,
+			Link:        &feeds.Link{Href: fmt.Sprintf("%s/d/%s", site, postID)},
+			Description: content,
+			Author:      &feeds.Author{Name: authorName},
+			Created:     created,
+		})
 	}, "data")
+	fatalError(err)
+
+	atom, err := feed.ToAtom()
+	fatalError(err)
+
+	if opts.Output == "-" {
+		_, err = os.Stdout.Write([]byte(atom))
+		fatalError(err)
+		return
+	}
+	err = ioutil.WriteFile(opts.Output, []byte(atom), 0644)
 	fatalError(err)
 }
